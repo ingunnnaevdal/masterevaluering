@@ -1,151 +1,295 @@
 import streamlit as st
 import pandas as pd
-import math
-from pathlib import Path
+import random
+from pymongo.mongo_client import MongoClient
+from pymongo.server_api import ServerApi
+from dotenv import load_dotenv
+import os
+import ast
 
-# Set the title and favicon that appear in the Browser's tab bar.
-st.set_page_config(
-    page_title='GDP dashboard',
-    page_icon=':earth_americas:', # This is an emoji shortcode. Could be a URL too.
-)
+st.set_page_config(layout="wide")
 
-# -----------------------------------------------------------------------------
-# Declare some useful functions.
+load_dotenv()
+password = os.getenv("MONGODB_PASSWORD")
+uri = f"mongodb+srv://ingunn:{password}@samiaeval.2obnm.mongodb.net/?retryWrites=true&w=majority&tlsAllowInvalidCertificates=true"
 
-@st.cache_data
-def get_gdp_data():
-    """Grab GDP data from a CSV file.
+client = MongoClient(uri, server_api=ServerApi('1'))
+evaluering_kolleksjon = client['SamiaEvalDB']['personalisering_VOL3']
 
-    This uses caching to avoid having to read the file every time. If we were
-    reading from an HTTP endpoint instead of a file, it's a good idea to set
-    a maximum age to the cache with the TTL argument: @st.cache_data(ttl='1d')
-    """
 
-    # Instead of a CSV on disk, you could read from an HTTP endpoint here too.
-    DATA_FILENAME = Path(__file__).parent/'data/gdp_data.csv'
-    raw_gdp_df = pd.read_csv(DATA_FILENAME)
+def les_datasett(filsti):
+    try:
+        return pd.read_csv(filsti)
+    except FileNotFoundError:
+        st.error(f"Filen {filsti} ble ikke funnet.")
+        st.stop()
+    except pd.errors.ParserError:
+        st.error(f"Kunne ikke lese filen {filsti}. Sjekk formatet.")
+        st.stop()
 
-    MIN_YEAR = 1960
-    MAX_YEAR = 2022
 
-    # The data above has columns like:
-    # - Country Name
-    # - Country Code
-    # - [Stuff I don't care about]
-    # - GDP for 1960
-    # - GDP for 1961
-    # - GDP for 1962
-    # - ...
-    # - GDP for 2022
-    #
-    # ...but I want this instead:
-    # - Country Name
-    # - Country Code
-    # - Year
-    # - GDP
-    #
-    # So let's pivot all those year-columns into two: Year and GDP
-    gdp_df = raw_gdp_df.melt(
-        ['Country Code'],
-        [str(x) for x in range(MIN_YEAR, MAX_YEAR + 1)],
-        'Year',
-        'GDP',
+def lagre_evaluering_mongodb(kolleksjon, evaluering):
+    try:
+        kolleksjon.insert_one(evaluering)
+        st.success("Evaluering lagret!")
+    except Exception as e:
+        st.error(f"Feil under lagring i MongoDB: {e}")
+
+
+def vis_tekst_sammendrag(tekst):
+    try:
+        tekst = ast.literal_eval(tekst) 
+    except (SyntaxError, ValueError):
+        pass
+
+    if isinstance(tekst, list):
+        tekst = [punkt.replace("•", "").strip() for punkt in tekst]
+        tekst = [f"- {punkt}" if not punkt.startswith("-") else punkt for punkt in tekst]
+        st.markdown("\n".join(tekst), unsafe_allow_html=True)
+    else:
+        st.write(tekst)
+
+
+bruker_id = st.text_input("Skriv inn ditt navn eller ID:", key="bruker_id")
+if not bruker_id:
+    st.stop()
+
+undersokelse_svart = evaluering_kolleksjon.find_one({'bruker_id': bruker_id, 'type': 'undersokelse'})
+
+if not undersokelse_svart:
+    st.title("Brukerundersøkelse")
+    st.header("Før vi starter, vennligst svar på noen spørsmål:")
+
+    svar_lengde = st.radio(
+        "Hvor lange mener du at nyhetssammendrag burde være?",
+        options=["1-2 setninger", "Et kort avsnitt", "En mer detaljert oppsummering (flere avsnitt)", "Varierer avhengig av sakens kompleksitet"]
     )
 
-    # Convert years from string to integers
-    gdp_df['Year'] = pd.to_numeric(gdp_df['Year'])
+    svar_presentasjon = st.radio(
+        "Hvordan foretrekker du at nyhetssammendrag presenteres?",
+        options=[
+            "Nøytralt og objektivt, uten vurderinger",
+            "Kort og konsist, med kun de viktigste fakta",
+            "Med en kort vurdering av saken",
+            "Med forklaringer av komplekse begreper eller sammenhenger"
+        ]
+    )
 
-    return gdp_df
+    svar_bakgrunn = st.radio(
+        "Hvor viktig er det at nyhetssammendrag gir bakgrunnsinformasjon og kontekst?",
+        options=["Svært viktig", "Litt viktig", "Ikke viktig"]
+    )
 
-gdp_df = get_gdp_data()
+    svar_viktigst = st.radio(
+        "Hva er viktigst for deg?",
+        options=[
+            "At nyhetssammendraget gir meg all relevant informasjon raskt",
+            "At nyhetssammendraget forklarer hvorfor saken er viktig",
+            "At nyhetssammendraget er enkelt å forstå",
+            "At nyhetssammendraget har god språklig kvalitet"
+        ]
+    )
 
-# -----------------------------------------------------------------------------
-# Draw the actual page
+    svar_irriterende = st.radio(
+        "Hva ville irritert deg mest med et nyhetssammendrag?",
+        options=[
+            "Upresis eller unøyaktig informasjon",
+            "For mye tekst eller unødvendige detaljer",
+            "Mangel på kontekst eller bakgrunn",
+            "Et subjektivt eller vinklet språk"
+        ]
+    )
 
-# Set the title that appears at the top of the page.
-'''
-# :earth_americas: GDP dashboard
-
-Browse GDP data from the [World Bank Open Data](https://data.worldbank.org/) website. As you'll
-notice, the data only goes to 2022 right now, and datapoints for certain years are often missing.
-But it's otherwise a great (and did I mention _free_?) source of data.
-'''
-
-# Add some spacing
-''
-''
-
-min_value = gdp_df['Year'].min()
-max_value = gdp_df['Year'].max()
-
-from_year, to_year = st.slider(
-    'Which years are you interested in?',
-    min_value=min_value,
-    max_value=max_value,
-    value=[min_value, max_value])
-
-countries = gdp_df['Country Code'].unique()
-
-if not len(countries):
-    st.warning("Select at least one country")
-
-selected_countries = st.multiselect(
-    'Which countries would you like to view?',
-    countries,
-    ['DEU', 'FRA', 'GBR', 'BRA', 'MEX', 'JPN'])
-
-''
-''
-''
-
-# Filter the data
-filtered_gdp_df = gdp_df[
-    (gdp_df['Country Code'].isin(selected_countries))
-    & (gdp_df['Year'] <= to_year)
-    & (from_year <= gdp_df['Year'])
-]
-
-st.header('GDP over time', divider='gray')
-
-''
-
-st.line_chart(
-    filtered_gdp_df,
-    x='Year',
-    y='GDP',
-    color='Country Code',
-)
-
-''
-''
+    if st.button("Start evaluering"):
+        undersokelse = {
+            'bruker_id': bruker_id,
+            'type': 'undersokelse',
+            'svar_lengde': svar_lengde,
+            'svar_presentasjon': svar_presentasjon,
+            'svar_bakgrunn': svar_bakgrunn,
+            'svar_viktigst': svar_viktigst,
+            'svar_irriterende': svar_irriterende
+        }
+        evaluering_kolleksjon.insert_one(undersokelse)
+        st.success("Takk for at du svarte! Du kan nå starte evalueringen.")
+        st.rerun()
+else:
+    st.write("Takk for at du svarte på undersøkelsen tidligere! Du kan nå fortsette til evalueringen.")
 
 
-first_year = gdp_df[gdp_df['Year'] == from_year]
-last_year = gdp_df[gdp_df['Year'] == to_year]
+filsti = 'data.csv'
+data = les_datasett(filsti)
 
-st.header(f'GDP in {to_year}', divider='gray')
+user_config = evaluering_kolleksjon.find_one({
+    'bruker_id': bruker_id,
+    'type': 'user_config'
+})
 
-''
+if not user_config:
+    random_order = list(range(len(data)))
+    random.shuffle(random_order)
 
-cols = st.columns(4)
+    p = set(range(1, min(len(data), 6)))  
 
-for i, country in enumerate(selected_countries):
-    col = cols[i % len(cols)]
+    if len(random_order) > 1 and len(p) > 0:
+        first_two = random_order[:2]
+        if not any(idx in p for idx in first_two):
+            for j in range(2, len(random_order)):
+                if random_order[j] in p:
+                    random_order[1], random_order[j] = random_order[j], random_order[1]
+                    break
 
-    with col:
-        first_gdp = first_year[first_year['Country Code'] == country]['GDP'].iat[0] / 1000000000
-        last_gdp = last_year[last_year['Country Code'] == country]['GDP'].iat[0] / 1000000000
+    user_config = {
+        'bruker_id': bruker_id,
+        'type': 'user_config',
+        'random_order': random_order,
+        'current_index': 0
+    }
+    evaluering_kolleksjon.insert_one(user_config)
+else:
+    random_order = user_config['random_order']
 
-        if math.isnan(first_gdp):
-            growth = 'n/a'
-            delta_color = 'off'
+current_index = user_config['current_index']
+
+if current_index >= len(random_order):
+    st.success("Alle artikler er evaluert!")
+    st.stop()
+
+this_article_idx = random_order[current_index]
+row = data.iloc[this_article_idx]
+
+st.header(f"Artikkel {current_index + 1}/{len(data)}")
+st.markdown(f"""
+<div class='main-container'>
+    <h1 class='article-title'>{row['title']}</h1>
+    <div class='lead-text'>{row['byline']}</div>
+    <div class='lead-text'>Publisert: {row['creation_date']}</div>
+    <div class='lead-text'>{row['lead_text']}</div>
+    <div class='article-body'>{row['artikkeltekst']}</div>
+</div>
+""", unsafe_allow_html=True)
+
+if f"valgte_sammendrag_{bruker_id}_{current_index}" not in st.session_state:
+    all_prompt_cols = [col for col in row.index if 'prompt' in col and pd.notna(row[col])]
+
+    prompt4_cols = [col for col in all_prompt_cols if 'prompt4' in col]
+    other_prompt_cols = list(set(all_prompt_cols) - set(prompt4_cols))
+
+    random.shuffle(prompt4_cols)
+    random.shuffle(other_prompt_cols)
+
+    selected_cols = []
+    if len(prompt4_cols) >= 2:
+        selected_cols.extend(prompt4_cols[:2])
+        needed = 4 - len(selected_cols)
+        if len(other_prompt_cols) >= needed:
+            selected_cols.extend(other_prompt_cols[:needed])
         else:
-            growth = f'{last_gdp / first_gdp:,.2f}x'
-            delta_color = 'normal'
+            selected_cols.extend(prompt4_cols[2:2 + needed])
+    else:
+        random.shuffle(all_prompt_cols)
+        selected_cols = all_prompt_cols[:4]
 
-        st.metric(
-            label=f'{country} GDP',
-            value=f'{last_gdp:,.0f}B',
-            delta=growth,
-            delta_color=delta_color
+    sammendrag_liste = [(col.replace('prompt_', ''), row[col]) for col in selected_cols]
+    random.shuffle(sammendrag_liste)
+
+    st.session_state[f"valgte_sammendrag_{bruker_id}_{current_index}"] = sammendrag_liste
+
+valgte_sammendrag = st.session_state[f"valgte_sammendrag_{bruker_id}_{current_index}"]
+
+st.subheader("Sammendrag:")
+rankings = {}
+ranking_options = ["Best", "Nest best", "Nest dårligst", "Dårligst"]
+
+for i, (kilde, tekst) in enumerate(valgte_sammendrag):
+    with st.expander(f"Sammendrag {i + 1}"):
+        vis_tekst_sammendrag(tekst)
+        rankings[kilde] = st.selectbox(
+            f"Ranger sammendrag {i + 1}",
+            ranking_options,
+            key=f"ranking_{bruker_id}_{current_index}_{i}"
         )
+
+kommentar = st.text_area("Kommentar:", key=f"kommentar_{bruker_id}_{current_index}")
+
+if st.button("Lagre evaluering", key=f"lagre_{bruker_id}_{current_index}"):
+    evaluering = {
+        'bruker_id': bruker_id,
+        'type': 'artikkel_evaluering',
+        'random_list_pos': current_index,
+        'data_idx': this_article_idx,
+        'uuid': row['uuid'],
+        'rangeringer': rankings,
+        'sammendrag_kilder': [kilde for kilde, _ in valgte_sammendrag],
+        'kommentar': kommentar
+    }
+    lagre_evaluering_mongodb(evaluering_kolleksjon, evaluering)
+
+    current_index += 1
+    evaluering_kolleksjon.update_one(
+        {'_id': user_config['_id']},
+        {'$set': {'current_index': current_index}}
+    )
+
+    st.rerun()
+
+st.markdown("""
+    <style>
+        .main-container {
+            max-width: 800px;  /* Gjør containeren smalere */
+            margin: auto;
+            padding: 20px;
+            background-color: #f9f9f9;
+            border-radius: 8px;
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+            max-height: 800px;  /* Begrens høyden */
+            overflow-y: auto;   /* Legg til vertikal scroll */
+        }
+        .article-title {
+            font-size: 28px;
+            font-weight: bold;
+            color: #333;
+            margin-bottom: 10px;
+        }
+        .lead-text {
+            font-size: 18px;
+            color: #555;
+            margin-bottom: 20px;
+        }
+        .article-body {
+            font-size: 16px;
+            line-height: 1.6;
+            color: #444;
+            margin-bottom: 30px;
+        }
+        .summary-box {
+            background: white;
+            padding: 15px;
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+        }
+        .summary-header {
+            font-weight: bold;
+            margin-bottom: 10px;
+        }
+        .evaluation-section {
+            background-color: #fff;
+            padding: 20px;
+            border: 1px solid #ddd;
+            border-radius: 8px;
+        }
+        .evaluation-button {
+            background-color: #2051b3;
+            color: white;
+            padding: 10px 20px;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+        }
+        .evaluation-button:hover {
+            background-color: #183c85;
+        }
+    </style>
+""", unsafe_allow_html=True)
