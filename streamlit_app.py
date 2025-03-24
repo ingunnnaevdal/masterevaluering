@@ -51,6 +51,21 @@ def vis_tekst_sammendrag(tekst):
 
 
 bruker_id = st.text_input("Skriv inn ditt navn eller ID:", key="bruker_id")
+
+st.markdown("""
+**Tusen takk for at du vil hjelpe meg med evalueringen!**  
+Slik fungerer applikasjonen:
+
+- For å komme i gang må du skrive inn navn eller ID. Dette brukes kun for å lagre fremdriften din og skille mellom ulike brukere.
+- Før selve evalueringen starter, får du fem korte spørsmål om dine preferanser. Når disse er besvart, kan du trykke på **"Start evaluering"**.
+- Du får deretter presentert en nyhetsartikkel og fire ulike sammendrag. Din oppgave er å rangere dem fra **"Best"** til **"Dårligst"**.
+- Vi er ute etter din personlige vurdering – hvilket sammendrag synes **du** er best?
+- Prøv gjerne å gi ulike rangeringer, men hvis det er vanskelig å skille mellom noen av dem, er det mulig å gi samme rangering til flere.
+- Det finnes også et kommentarfelt hvor du gjerne kan skrive kort hvorfor du rangerte som du gjorde – helt frivillig, men veldig nyttig!
+- Trykk på **"Lagre evaluering"** for å gå videre til neste artikkel med nye sammendrag.
+- Øverst til venstre kan du følge med på fremdriften. Totalt finnes det 40 artikler, men det er selvfølgelig ikke forventet at du vurderer alle. Om du har tid til å ta noen få, setter jeg stor pris på det 😊
+""")
+
 if not bruker_id:
     st.stop()
 
@@ -113,8 +128,8 @@ if not undersokelse_svart:
         evaluering_kolleksjon.insert_one(undersokelse)
         st.success("Takk for at du svarte! Du kan nå starte evalueringen.")
         st.rerun()
-else:
-    st.write("Takk for at du svarte på undersøkelsen tidligere! Du kan nå fortsette til evalueringen.")
+#else:
+#    st.write("Takk for at du svarte på undersøkelsen tidligere! Du kan nå fortsette til evalueringen.")
 
 
 filsti = 'data.csv'
@@ -235,31 +250,44 @@ if st.button("Lagre evaluering", key=f"lagre_{bruker_id}_{current_index}"):
 
 st.markdown("""
     <style>
+        :root {
+            --primary-text-color: #333;
+            --secondary-text-color: #555;
+            --background-color: #f9f9f9;
+        }
+
+        @media (prefers-color-scheme: dark) {
+            :root {
+                --primary-text-color: #f0f0f0;
+                --secondary-text-color: #bbb;
+                --background-color: #222;
+            }
+        }
         .main-container {
-            max-width: 800px;  /* Gjør containeren smalere */
+            max-width: 800px;
             margin: auto;
             padding: 20px;
-            background-color: #f9f9f9;
+            background-color: var(--background-color);
             border-radius: 8px;
             box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
-            max-height: 800px;  /* Begrens høyden */
-            overflow-y: auto;   /* Legg til vertikal scroll */
+            max-height: 800px;
+            overflow-y: auto;
         }
         .article-title {
             font-size: 28px;
             font-weight: bold;
-            color: #333;
+            color: var(--primary-text-color);
             margin-bottom: 10px;
         }
         .lead-text {
             font-size: 18px;
-            color: #555;
+            color: var(--secondary-text-color);
             margin-bottom: 20px;
         }
         .article-body {
             font-size: 16px;
             line-height: 1.6;
-            color: #444;
+            color: var(--primary-text-color);
             margin-bottom: 30px;
         }
         .summary-box {
